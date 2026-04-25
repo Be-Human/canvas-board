@@ -226,12 +226,22 @@
                 };
             }
 
+            // 绘制圆点
+            function drawDot(x, y) {
+                ctx.beginPath();
+                const radius = currentTool === 'eraser' ? currentSize : currentSize / 2;
+                ctx.arc(x, y, radius, 0, Math.PI * 2);
+                ctx.fillStyle = currentTool === 'eraser' ? '#ffffff' : currentColor;
+                ctx.fill();
+            }
+
             // 开始绘画
             function startDrawing(e) {
                 isDrawing = true;
                 const pos = getMousePos(e);
                 lastX = pos.x;
                 lastY = pos.y;
+                drawDot(pos.x, pos.y);
             }
 
             // 绘画
