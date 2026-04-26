@@ -155,15 +155,19 @@
 
         #canvas {
             display: block;
-            cursor: crosshair;
             position: absolute;
             top: 0;
             left: 0;
+            z-index: 1;
         }
 
         #previewCanvas {
             display: block;
             cursor: crosshair;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 2;
         }
     </style>
 </head>
@@ -202,13 +206,12 @@
     </div>
     
     <div class="canvas-container" style="width: 800px; height: 600px;">
-        <canvas id="previewCanvas" width="800" height="600"></canvas>
         <canvas id="canvas" width="800" height="600"></canvas>
+        <canvas id="previewCanvas" width="800" height="600"></canvas>
     </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            // 获取元素
             const canvas = document.getElementById('canvas');
             const ctx = canvas.getContext('2d');
             const previewCanvas = document.getElementById('previewCanvas');
@@ -227,7 +230,6 @@
             const clearBtn = document.getElementById('clear-btn');
             const saveBtn = document.getElementById('save-btn');
 
-            // 状态变量
             let isDrawing = false;
             let currentTool = 'brush';
             let currentColor = '#000000';
@@ -237,19 +239,16 @@
             let startX = 0;
             let startY = 0;
 
-            // 撤销重做相关
             const history = [];
             let historyIndex = -1;
             const maxHistory = 50;
 
-            // 初始化画布背景为白色
             function initCanvas() {
                 ctx.fillStyle = '#ffffff';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
                 saveToHistory();
             }
 
-            // 保存当前状态到历史记录
             function saveToHistory() {
                 if (historyIndex < history.length - 1) {
                     history.splice(historyIndex + 1);
@@ -267,7 +266,6 @@
                 updateUndoRedoButtons();
             }
 
-            // 撤销
             function undo() {
                 if (historyIndex > 0) {
                     historyIndex--;
@@ -276,7 +274,6 @@
                 }
             }
 
-            // 重做
             function redo() {
                 if (historyIndex < history.length - 1) {
                     historyIndex++;
@@ -285,18 +282,15 @@
                 }
             }
 
-            // 更新撤销重做按钮状态
             function updateUndoRedoButtons() {
                 undoBtn.disabled = historyIndex <= 0;
                 redoBtn.disabled = historyIndex >= history.length - 1;
             }
 
-            // 清除预览画布
             function clearPreview() {
                 previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
             }
 
-            // 绘制预览形状
             function drawPreviewShape(endX, endY) {
                 clearPreview();
                 
@@ -326,7 +320,6 @@
                 previewCtx.stroke();
             }
 
-            // 绘制最终形状到主画布
             function drawFinalShape(endX, endY) {
                 ctx.beginPath();
                 ctx.strokeStyle = currentColor;
@@ -355,7 +348,6 @@
                 saveToHistory();
             }
 
-            // 工具切换
             function setActiveTool(tool, buttons) {
                 currentTool = tool;
                 buttons.forEach(btn => btn.classList.remove('active'));
@@ -398,31 +390,26 @@
                 setActiveTool('circle', [brushBtn, eraserBtn, lineBtn, rectBtn, circleBtn]);
             });
 
-            // 撤销重做按钮事件
             undoBtn.addEventListener('click', undo);
             redoBtn.addEventListener('click', redo);
 
-            // 颜色选择
             colorInput.addEventListener('input', function() {
                 currentColor = colorInput.value;
             });
 
-            // 粗细调节
             sizeInput.addEventListener('input', function() {
                 currentSize = parseInt(sizeInput.value);
                 sizeValue.textContent = currentSize;
             });
 
-            // 获取鼠标在画布上的位置
             function getMousePos(e) {
-                const rect = canvas.getBoundingClientRect();
+                const rect = previewCanvas.getBoundingClientRect();
                 return {
                     x: e.clientX - rect.left,
                     y: e.clientY - rect.top
                 };
             }
 
-            // 绘制圆点
             function drawDot(x, y) {
                 ctx.beginPath();
                 const radius = currentTool === 'eraser' ? currentSize : currentSize / 2;
@@ -431,7 +418,6 @@
                 ctx.fill();
             }
 
-            // 开始绘画
             function startDrawing(e) {
                 isDrawing = true;
                 const pos = getMousePos(e);
@@ -445,7 +431,6 @@
                 }
             }
 
-            // 绘画
             function draw(e) {
                 if (!isDrawing) return;
 
@@ -475,7 +460,6 @@
                 }
             }
 
-            // 停止绘画
             function stopDrawing(e) {
                 if (!isDrawing) return;
                 
@@ -491,44 +475,41 @@
                 isDrawing = false;
             }
 
-            // 画布事件监听
-            canvas.addEventListener('mousedown', startDrawing);
-            canvas.addEventListener('mousemove', draw);
-            canvas.addEventListener('mouseup', stopDrawing);
-            canvas.addEventListener('mouseout', function(e) {
+            previewCanvas.addEventListener('mousedown', startDrawing);
+            previewCanvas.addEventListener('mousemove', draw);
+            previewCanvas.addEventListener('mouseup', stopDrawing);
+            previewCanvas.addEventListener('mouseout', function(e) {
                 if (isDrawing) {
                     stopDrawing(e);
                 }
             });
 
-            // 触摸事件支持
-            canvas.addEventListener('touchstart', function(e) {
+            previewCanvas.addEventListener('touchstart', function(e) {
                 e.preventDefault();
                 const touch = e.touches[0];
                 const mouseEvent = new MouseEvent('mousedown', {
                     clientX: touch.clientX,
                     clientY: touch.clientY
                 });
-                canvas.dispatchEvent(mouseEvent);
+                previewCanvas.dispatchEvent(mouseEvent);
             });
 
-            canvas.addEventListener('touchmove', function(e) {
+            previewCanvas.addEventListener('touchmove', function(e) {
                 e.preventDefault();
                 const touch = e.touches[0];
                 const mouseEvent = new MouseEvent('mousemove', {
                     clientX: touch.clientX,
                     clientY: touch.clientY
                 });
-                canvas.dispatchEvent(mouseEvent);
+                previewCanvas.dispatchEvent(mouseEvent);
             });
 
-            canvas.addEventListener('touchend', function(e) {
+            previewCanvas.addEventListener('touchend', function(e) {
                 e.preventDefault();
                 const mouseEvent = new MouseEvent('mouseup', {});
-                canvas.dispatchEvent(mouseEvent);
+                previewCanvas.dispatchEvent(mouseEvent);
             });
 
-            // 键盘快捷键
             document.addEventListener('keydown', function(e) {
                 if (e.ctrlKey || e.metaKey) {
                     switch (e.key.toLowerCase()) {
@@ -548,14 +529,12 @@
                 }
             });
 
-            // 清空画布
             clearBtn.addEventListener('click', function() {
                 if (confirm('确定要清空画布吗？')) {
                     initCanvas();
                 }
             });
 
-            // 保存图片
             saveBtn.addEventListener('click', function() {
                 const link = document.createElement('a');
                 link.download = 'canvas-drawing-' + Date.now() + '.png';
@@ -563,7 +542,6 @@
                 link.click();
             });
 
-            // 初始化
             initCanvas();
         });
     </script>
