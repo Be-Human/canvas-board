@@ -36,7 +36,7 @@
             padding: 15px 20px;
             border-radius: 10px;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-            max-width: 900px;
+            max-width: 950px;
             width: 100%;
         }
 
@@ -169,6 +169,51 @@
             left: 0;
             z-index: 2;
         }
+
+        .text-input-container {
+            position: absolute;
+            display: none;
+            z-index: 100;
+        }
+
+        .text-input-container input {
+            padding: 8px 12px;
+            font-size: 16px;
+            border: 2px solid #4CAF50;
+            border-radius: 4px;
+            outline: none;
+            background-color: white;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .text-input-container input:focus {
+            border-color: #45a049;
+        }
+
+        .selection-box {
+            position: absolute;
+            border: 2px dashed #2196F3;
+            background-color: rgba(33, 150, 243, 0.1);
+            pointer-events: none;
+            z-index: 3;
+            display: none;
+        }
+
+        .tool-group select {
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .font-size-input {
+            width: 60px;
+            padding: 6px 8px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
@@ -178,6 +223,9 @@
         <div class="tool-group">
             <button class="tool-btn active" id="brush-btn">画笔</button>
             <button class="tool-btn" id="eraser-btn">橡皮擦</button>
+            <button class="tool-btn" id="fill-btn">填充</button>
+            <button class="tool-btn" id="text-btn">文字</button>
+            <button class="tool-btn" id="select-btn">选择</button>
         </div>
         
         <div class="tool-group">
@@ -197,6 +245,18 @@
             <span class="size-value" id="size-value">5</span>
         </div>
         
+        <div class="tool-group" id="text-options" style="display: none;">
+            <label for="font-size">字号:</label>
+            <input type="number" id="font-size" class="font-size-input" min="8" max="200" value="24">
+            <select id="font-family">
+                <option value="Arial">Arial</option>
+                <option value="Times New Roman">Times New Roman</option>
+                <option value="Courier New">Courier New</option>
+                <option value="Georgia">Georgia</option>
+                <option value="Verdana">Verdana</option>
+            </select>
+        </div>
+        
         <div class="tool-group">
             <button class="action-btn undo-btn" id="undo-btn" disabled>撤销</button>
             <button class="action-btn redo-btn" id="redo-btn" disabled>重做</button>
@@ -205,9 +265,13 @@
         </div>
     </div>
     
-    <div class="canvas-container" style="width: 800px; height: 600px;">
+    <div class="canvas-container" id="canvasContainer" style="width: 800px; height: 600px;">
         <canvas id="canvas" width="800" height="600"></canvas>
         <canvas id="previewCanvas" width="800" height="600"></canvas>
+        <div class="text-input-container" id="textInputContainer">
+            <input type="text" id="textInput" placeholder="输入文字后按 Enter 确认">
+        </div>
+        <div class="selection-box" id="selectionBox"></div>
     </div>
 
     <script>
@@ -216,9 +280,17 @@
             const ctx = canvas.getContext('2d');
             const previewCanvas = document.getElementById('previewCanvas');
             const previewCtx = previewCanvas.getContext('2d');
+            const canvasContainer = document.getElementById('canvasContainer');
+            const textInputContainer = document.getElementById('textInputContainer');
+            const textInput = document.getElementById('textInput');
+            const selectionBox = document.getElementById('selectionBox');
+            const textOptions = document.getElementById('text-options');
             
             const brushBtn = document.getElementById('brush-btn');
             const eraserBtn = document.getElementById('eraser-btn');
+            const fillBtn = document.getElementById('fill-btn');
+            const textBtn = document.getElementById('text-btn');
+            const selectBtn = document.getElementById('select-btn');
             const lineBtn = document.getElementById('line-btn');
             const rectBtn = document.getElementById('rect-btn');
             const circleBtn = document.getElementById('circle-btn');
@@ -229,6 +301,8 @@
             const sizeValue = document.getElementById('size-value');
             const clearBtn = document.getElementById('clear-btn');
             const saveBtn = document.getElementById('save-btn');
+            const fontSizeInput = document.getElementById('font-size');
+            const fontFamilySelect = document.getElementById('font-family');
 
             let isDrawing = false;
             let currentTool = 'brush';
@@ -238,6 +312,20 @@
             let lastY = 0;
             let startX = 0;
             let startY = 0;
+            let fontSize = 24;
+            let fontFamily = 'Arial';
+
+            let selectionStartX = 0;
+            let selectionStartY = 0;
+            let selectionEndX = 0;
+            let selectionEndY = 0;
+            let isSelecting = false;
+            let isMovingSelection = false;
+            let selectedImageData = null;
+            let selectionMoveStartX = 0;
+            let selectionMoveStartY = 0;
+            let selectionOffsetX = 0;
+            let selectionOffsetY = 0;
 
             const history = [];
             let historyIndex = -1;
@@ -348,46 +436,218 @@
                 saveToHistory();
             }
 
-            function setActiveTool(tool, buttons) {
+            function hexToRgb(hex) {
+                const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                return result ? {
+                    r: parseInt(result[1], 16),
+                    g: parseInt(result[2], 16),
+                    b: parseInt(result[3], 16),
+                    a: 255
+                } : null;
+            }
+
+            function colorsMatch(color1, color2, tolerance = 32) {
+                return Math.abs(color1.r - color2.r) <= tolerance &&
+                       Math.abs(color1.g - color2.g) <= tolerance &&
+                       Math.abs(color1.b - color2.b) <= tolerance &&
+                       Math.abs(color1.a - color2.a) <= tolerance;
+            }
+
+            function floodFill(startX, startY, fillColor) {
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const data = imageData.data;
+                const width = canvas.width;
+                const height = canvas.height;
+
+                const startPos = (Math.floor(startY) * width + Math.floor(startX)) * 4;
+                const targetColor = {
+                    r: data[startPos],
+                    g: data[startPos + 1],
+                    b: data[startPos + 2],
+                    a: data[startPos + 3]
+                };
+
+                if (colorsMatch(targetColor, fillColor)) {
+                    return;
+                }
+
+                const stack = [];
+                const visited = new Set();
+
+                stack.push({ x: Math.floor(startX), y: Math.floor(startY) });
+
+                while (stack.length > 0) {
+                    const { x, y } = stack.pop();
+                    const key = `${x},${y}`;
+
+                    if (visited.has(key)) continue;
+                    if (x < 0 || x >= width || y < 0 || y >= height) continue;
+
+                    const pos = (y * width + x) * 4;
+                    const currentColor = {
+                        r: data[pos],
+                        g: data[pos + 1],
+                        b: data[pos + 2],
+                        a: data[pos + 3]
+                    };
+
+                    if (!colorsMatch(currentColor, targetColor)) continue;
+
+                    visited.add(key);
+
+                    data[pos] = fillColor.r;
+                    data[pos + 1] = fillColor.g;
+                    data[pos + 2] = fillColor.b;
+                    data[pos + 3] = fillColor.a;
+
+                    stack.push({ x: x + 1, y });
+                    stack.push({ x: x - 1, y });
+                    stack.push({ x, y: y + 1 });
+                    stack.push({ x, y: y - 1 });
+                }
+
+                ctx.putImageData(imageData, 0, 0);
+                saveToHistory();
+            }
+
+            function showTextInput(x, y) {
+                const containerRect = canvasContainer.getBoundingClientRect();
+                textInputContainer.style.left = (x + containerRect.left) + 'px';
+                textInputContainer.style.top = (y + containerRect.top) + 'px';
+                textInputContainer.style.display = 'block';
+                textInput.value = '';
+                textInput.focus();
+            }
+
+            function hideTextInput() {
+                textInputContainer.style.display = 'none';
+            }
+
+            function drawText(x, y, text) {
+                if (!text || text.trim() === '') {
+                    return;
+                }
+                
+                ctx.font = `${fontSize}px ${fontFamily}`;
+                ctx.fillStyle = currentColor;
+                ctx.textBaseline = 'top';
+                ctx.fillText(text, x, y);
+                saveToHistory();
+            }
+
+            function showSelectionBox(startX, startY, endX, endY) {
+                const left = Math.min(startX, endX);
+                const top = Math.min(startY, endY);
+                const width = Math.abs(endX - startX);
+                const height = Math.abs(endY - startY);
+
+                selectionBox.style.left = left + 'px';
+                selectionBox.style.top = top + 'px';
+                selectionBox.style.width = width + 'px';
+                selectionBox.style.height = height + 'px';
+                selectionBox.style.display = 'block';
+            }
+
+            function hideSelectionBox() {
+                selectionBox.style.display = 'none';
+            }
+
+            function isInSelection(x, y) {
+                const left = Math.min(selectionStartX, selectionEndX) + selectionOffsetX;
+                const top = Math.min(selectionStartY, selectionEndY) + selectionOffsetY;
+                const right = Math.max(selectionStartX, selectionEndX) + selectionOffsetX;
+                const bottom = Math.max(selectionStartY, selectionEndY) + selectionOffsetY;
+
+                return x >= left && x <= right && y >= top && y <= bottom;
+            }
+
+            function setActiveTool(tool) {
                 currentTool = tool;
-                buttons.forEach(btn => btn.classList.remove('active'));
+                const allToolBtns = [brushBtn, eraserBtn, fillBtn, textBtn, selectBtn, lineBtn, rectBtn, circleBtn];
+                allToolBtns.forEach(btn => btn.classList.remove('active'));
+
+                if (currentTool !== 'text') {
+                    hideTextInput();
+                }
+
+                if (currentTool !== 'select') {
+                    hideSelectionBox();
+                    selectedImageData = null;
+                    isSelecting = false;
+                    isMovingSelection = false;
+                    selectionOffsetX = 0;
+                    selectionOffsetY = 0;
+                    clearPreview();
+                }
+
+                textOptions.style.display = currentTool === 'text' ? 'flex' : 'none';
+
                 switch (tool) {
                     case 'brush':
                         brushBtn.classList.add('active');
+                        previewCanvas.style.cursor = 'crosshair';
                         break;
                     case 'eraser':
                         eraserBtn.classList.add('active');
+                        previewCanvas.style.cursor = 'crosshair';
+                        break;
+                    case 'fill':
+                        fillBtn.classList.add('active');
+                        previewCanvas.style.cursor = 'cell';
+                        break;
+                    case 'text':
+                        textBtn.classList.add('active');
+                        previewCanvas.style.cursor = 'text';
+                        break;
+                    case 'select':
+                        selectBtn.classList.add('active');
+                        previewCanvas.style.cursor = 'default';
                         break;
                     case 'line':
                         lineBtn.classList.add('active');
+                        previewCanvas.style.cursor = 'crosshair';
                         break;
                     case 'rect':
                         rectBtn.classList.add('active');
+                        previewCanvas.style.cursor = 'crosshair';
                         break;
                     case 'circle':
                         circleBtn.classList.add('active');
+                        previewCanvas.style.cursor = 'crosshair';
                         break;
                 }
             }
 
             brushBtn.addEventListener('click', function() {
-                setActiveTool('brush', [brushBtn, eraserBtn, lineBtn, rectBtn, circleBtn]);
+                setActiveTool('brush');
             });
 
             eraserBtn.addEventListener('click', function() {
-                setActiveTool('eraser', [brushBtn, eraserBtn, lineBtn, rectBtn, circleBtn]);
+                setActiveTool('eraser');
+            });
+
+            fillBtn.addEventListener('click', function() {
+                setActiveTool('fill');
+            });
+
+            textBtn.addEventListener('click', function() {
+                setActiveTool('text');
+            });
+
+            selectBtn.addEventListener('click', function() {
+                setActiveTool('select');
             });
 
             lineBtn.addEventListener('click', function() {
-                setActiveTool('line', [brushBtn, eraserBtn, lineBtn, rectBtn, circleBtn]);
+                setActiveTool('line');
             });
 
             rectBtn.addEventListener('click', function() {
-                setActiveTool('rect', [brushBtn, eraserBtn, lineBtn, rectBtn, circleBtn]);
+                setActiveTool('rect');
             });
 
             circleBtn.addEventListener('click', function() {
-                setActiveTool('circle', [brushBtn, eraserBtn, lineBtn, rectBtn, circleBtn]);
+                setActiveTool('circle');
             });
 
             undoBtn.addEventListener('click', undo);
@@ -400,6 +660,35 @@
             sizeInput.addEventListener('input', function() {
                 currentSize = parseInt(sizeInput.value);
                 sizeValue.textContent = currentSize;
+            });
+
+            fontSizeInput.addEventListener('input', function() {
+                fontSize = parseInt(fontSizeInput.value) || 24;
+            });
+
+            fontFamilySelect.addEventListener('change', function() {
+                fontFamily = fontFamilySelect.value;
+            });
+
+            textInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') {
+                    const rect = canvasContainer.getBoundingClientRect();
+                    const inputRect = textInputContainer.getBoundingClientRect();
+                    const x = inputRect.left - rect.left;
+                    const y = inputRect.top - rect.top;
+                    drawText(x, y, textInput.value);
+                    hideTextInput();
+                } else if (e.key === 'Escape') {
+                    hideTextInput();
+                }
+            });
+
+            textInput.addEventListener('blur', function() {
+                setTimeout(() => {
+                    if (textInputContainer.style.display === 'block') {
+                        hideTextInput();
+                    }
+                }, 100);
             });
 
             function getMousePos(e) {
@@ -419,8 +708,42 @@
             }
 
             function startDrawing(e) {
-                isDrawing = true;
                 const pos = getMousePos(e);
+
+                if (currentTool === 'fill') {
+                    const fillColor = hexToRgb(currentColor);
+                    if (fillColor) {
+                        floodFill(pos.x, pos.y, fillColor);
+                    }
+                    return;
+                }
+
+                if (currentTool === 'text') {
+                    showTextInput(pos.x, pos.y);
+                    return;
+                }
+
+                if (currentTool === 'select') {
+                    if (selectedImageData && isInSelection(pos.x, pos.y)) {
+                        isMovingSelection = true;
+                        selectionMoveStartX = pos.x;
+                        selectionMoveStartY = pos.y;
+                    } else {
+                        isSelecting = true;
+                        selectionStartX = pos.x;
+                        selectionStartY = pos.y;
+                        selectionEndX = pos.x;
+                        selectionEndY = pos.y;
+                        selectionOffsetX = 0;
+                        selectionOffsetY = 0;
+                        selectedImageData = null;
+                        hideSelectionBox();
+                        clearPreview();
+                    }
+                    return;
+                }
+
+                isDrawing = true;
                 startX = pos.x;
                 startY = pos.y;
                 lastX = pos.x;
@@ -432,9 +755,38 @@
             }
 
             function draw(e) {
-                if (!isDrawing) return;
-
                 const pos = getMousePos(e);
+
+                if (currentTool === 'select') {
+                    if (isSelecting) {
+                        selectionEndX = pos.x;
+                        selectionEndY = pos.y;
+                        showSelectionBox(selectionStartX, selectionStartY, selectionEndX, selectionEndY);
+                    } else if (isMovingSelection && selectedImageData) {
+                        selectionOffsetX = pos.x - selectionMoveStartX;
+                        selectionOffsetY = pos.y - selectionMoveStartY;
+                        
+                        const left = Math.min(selectionStartX, selectionEndX);
+                        const top = Math.min(selectionStartY, selectionEndY);
+                        
+                        clearPreview();
+                        previewCtx.putImageData(
+                            selectedImageData,
+                            left + selectionOffsetX,
+                            top + selectionOffsetY
+                        );
+                        
+                        showSelectionBox(
+                            selectionStartX + selectionOffsetX,
+                            selectionStartY + selectionOffsetY,
+                            selectionEndX + selectionOffsetX,
+                            selectionEndY + selectionOffsetY
+                        );
+                    }
+                    return;
+                }
+
+                if (!isDrawing) return;
 
                 if (currentTool === 'brush' || currentTool === 'eraser') {
                     ctx.beginPath();
@@ -461,9 +813,50 @@
             }
 
             function stopDrawing(e) {
-                if (!isDrawing) return;
-                
                 const pos = getMousePos(e);
+
+                if (currentTool === 'select') {
+                    if (isSelecting) {
+                        isSelecting = false;
+                        const left = Math.min(selectionStartX, selectionEndX);
+                        const top = Math.min(selectionStartY, selectionEndY);
+                        const width = Math.abs(selectionEndX - selectionStartX);
+                        const height = Math.abs(selectionEndY - selectionStartY);
+
+                        if (width > 0 && height > 0) {
+                            selectedImageData = ctx.getImageData(left, top, width, height);
+                            
+                            ctx.fillStyle = '#ffffff';
+                            ctx.fillRect(left, top, width, height);
+                        }
+                    } else if (isMovingSelection && selectedImageData) {
+                        isMovingSelection = false;
+                        
+                        const left = Math.min(selectionStartX, selectionEndX);
+                        const top = Math.min(selectionStartY, selectionEndY);
+                        
+                        ctx.putImageData(
+                            selectedImageData,
+                            left + selectionOffsetX,
+                            top + selectionOffsetY
+                        );
+                        
+                        saveToHistory();
+                        
+                        selectionStartX += selectionOffsetX;
+                        selectionEndX += selectionOffsetX;
+                        selectionStartY += selectionOffsetY;
+                        selectionEndY += selectionOffsetY;
+                        selectionOffsetX = 0;
+                        selectionOffsetY = 0;
+                        
+                        clearPreview();
+                        showSelectionBox(selectionStartX, selectionStartY, selectionEndX, selectionEndY);
+                    }
+                    return;
+                }
+
+                if (!isDrawing) return;
                 
                 if (currentTool === 'line' || currentTool === 'rect' || currentTool === 'circle') {
                     clearPreview();
@@ -525,6 +918,17 @@
                             e.preventDefault();
                             redo();
                             break;
+                    }
+                }
+                
+                if (e.key === 'Escape') {
+                    if (textInputContainer.style.display === 'block') {
+                        hideTextInput();
+                    }
+                    if (currentTool === 'select') {
+                        hideSelectionBox();
+                        selectedImageData = null;
+                        clearPreview();
                     }
                 }
             });
