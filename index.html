@@ -825,28 +825,33 @@
 
                         if (width > 0 && height > 0) {
                             selectedImageData = ctx.getImageData(left, top, width, height);
-                            
-                            ctx.fillStyle = '#ffffff';
-                            ctx.fillRect(left, top, width, height);
                         }
                     } else if (isMovingSelection && selectedImageData) {
                         isMovingSelection = false;
                         
-                        const left = Math.min(selectionStartX, selectionEndX);
-                        const top = Math.min(selectionStartY, selectionEndY);
+                        if (selectionOffsetX !== 0 || selectionOffsetY !== 0) {
+                            const left = Math.min(selectionStartX, selectionEndX);
+                            const top = Math.min(selectionStartY, selectionEndY);
+                            const width = Math.abs(selectionEndX - selectionStartX);
+                            const height = Math.abs(selectionEndY - selectionStartY);
+                            
+                            ctx.fillStyle = '#ffffff';
+                            ctx.fillRect(left, top, width, height);
+                            
+                            ctx.putImageData(
+                                selectedImageData,
+                                left + selectionOffsetX,
+                                top + selectionOffsetY
+                            );
+                            
+                            saveToHistory();
+                            
+                            selectionStartX += selectionOffsetX;
+                            selectionEndX += selectionOffsetX;
+                            selectionStartY += selectionOffsetY;
+                            selectionEndY += selectionOffsetY;
+                        }
                         
-                        ctx.putImageData(
-                            selectedImageData,
-                            left + selectionOffsetX,
-                            top + selectionOffsetY
-                        );
-                        
-                        saveToHistory();
-                        
-                        selectionStartX += selectionOffsetX;
-                        selectionEndX += selectionOffsetX;
-                        selectionStartY += selectionOffsetY;
-                        selectionEndY += selectionOffsetY;
                         selectionOffsetX = 0;
                         selectionOffsetY = 0;
                         
