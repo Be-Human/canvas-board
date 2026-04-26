@@ -232,6 +232,8 @@
             <button class="tool-btn" id="line-btn">直线</button>
             <button class="tool-btn" id="rect-btn">矩形</button>
             <button class="tool-btn" id="circle-btn">圆形</button>
+            <button class="tool-btn" id="image-btn">图片</button>
+            <input type="file" id="imageInput" accept="image/*" style="display: none;">
         </div>
         
         <div class="tool-group">
@@ -245,6 +247,15 @@
             <span class="size-value" id="size-value">5</span>
         </div>
         
+        <div class="tool-group" id="brush-options">
+            <label for="brush-style">画笔样式:</label>
+            <select id="brush-style">
+                <option value="solid">实线</option>
+                <option value="dashed">虚线</option>
+                <option value="spray">喷枪</option>
+            </select>
+        </div>
+        
         <div class="tool-group" id="text-options" style="display: none;">
             <label for="font-size">字号:</label>
             <input type="number" id="font-size" class="font-size-input" min="8" max="200" value="24">
@@ -255,6 +266,12 @@
                 <option value="Georgia">Georgia</option>
                 <option value="Verdana">Verdana</option>
             </select>
+        </div>
+        
+        <div class="tool-group">
+            <button class="tool-btn" id="grid-btn">网格</button>
+            <label for="grid-size" style="margin-left: 10px;">网格大小:</label>
+            <input type="number" id="grid-size" class="font-size-input" min="10" max="100" value="20">
         </div>
         
         <div class="tool-group">
@@ -294,7 +311,19 @@
             const lineBtn = document.getElementById('line-btn');
             const rectBtn = document.getElementById('rect-btn');
             const circleBtn = document.getElementById('circle-btn');
+            const imageBtn = document.getElementById('image-btn');
+            const imageInput = document.getElementById('imageInput');
             const undoBtn = document.getElementById('undo-btn');
+            
+            let imageMode = false;
+            let selectedImage = null;
+            let imagePosition = { x: 0, y: 0 };
+            let isDraggingImage = false;
+            
+            let gridEnabled = false;
+            let gridSize = 20;
+            
+            let brushStyle = 'solid';
             const redoBtn = document.getElementById('redo-btn');
             const colorInput = document.getElementById('color-input');
             const sizeInput = document.getElementById('size-input');
@@ -303,6 +332,10 @@
             const saveBtn = document.getElementById('save-btn');
             const fontSizeInput = document.getElementById('font-size');
             const fontFamilySelect = document.getElementById('font-family');
+            const gridBtn = document.getElementById('grid-btn');
+            const gridSizeInput = document.getElementById('grid-size');
+            const brushStyleSelect = document.getElementById('brush-style');
+            const brushOptions = document.getElementById('brush-options');
 
             let isDrawing = false;
             let currentTool = 'brush';
@@ -330,6 +363,97 @@
             const history = [];
             let historyIndex = -1;
             const maxHistory = 50;
+
+            function loadImage(file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const img = new Image();
+                    img.onload = function() {
+                        selectedImage = img;
+                        imagePosition = { 
+                            x: (canvas.width - img.width) / 2, 
+                            y: (canvas.height - img.height) / 2 
+                        };
+                        drawImageToCanvas();
+                    };
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+            
+            function drawImageToCanvas() {
+                if (selectedImage) {
+                    ctx.drawImage(selectedImage, imagePosition.x, imagePosition.y);
+                    saveToHistory();
+                }
+            }
+            
+            function handleImageDrop(e) {
+                e.preventDefault();
+                const files = e.dataTransfer.files;
+                if (files.length > 0 && files[0].type.startsWith('image/')) {
+                    loadImage(files[0]);
+                }
+            }
+            
+            function handleDragOver(e) {
+                e.preventDefault();
+            }
+            
+            function drawSpray(x, y) {
+                const density = currentSize * 2;
+                const radius = currentSize * 2;
+                
+                ctx.fillStyle = currentColor;
+                
+                for (let i = 0; i < density; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const distance = Math.random() * radius;
+                    const offsetX = Math.cos(angle) * distance;
+                    const offsetY = Math.sin(angle) * distance;
+                    
+                    ctx.beginPath();
+                    ctx.arc(x + offsetX, y + offsetY, Math.random() * 1.5, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+            
+            function drawGrid() {
+                if (!gridEnabled) return;
+                
+                const width = canvas.width;
+                const height = canvas.height;
+                
+                previewCtx.save();
+                previewCtx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
+                previewCtx.lineWidth = 1;
+                
+                for (let x = 0; x <= width; x += gridSize) {
+                    previewCtx.beginPath();
+                    previewCtx.moveTo(x, 0);
+                    previewCtx.lineTo(x, height);
+                    previewCtx.stroke();
+                }
+                
+                for (let y = 0; y <= height; y += gridSize) {
+                    previewCtx.beginPath();
+                    previewCtx.moveTo(0, y);
+                    previewCtx.lineTo(width, y);
+                    previewCtx.stroke();
+                }
+                
+                previewCtx.restore();
+            }
+            
+            function toggleGrid() {
+                gridEnabled = !gridEnabled;
+                gridBtn.classList.toggle('active', gridEnabled);
+                if (gridEnabled) {
+                    drawGrid();
+                } else {
+                    clearPreview();
+                }
+            }
 
             function initCanvas() {
                 ctx.fillStyle = '#ffffff';
@@ -377,6 +501,9 @@
 
             function clearPreview() {
                 previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+                if (gridEnabled) {
+                    drawGrid();
+                }
             }
 
             function drawPreviewShape(endX, endY) {
@@ -563,7 +690,7 @@
 
             function setActiveTool(tool) {
                 currentTool = tool;
-                const allToolBtns = [brushBtn, eraserBtn, fillBtn, textBtn, selectBtn, lineBtn, rectBtn, circleBtn];
+                const allToolBtns = [brushBtn, eraserBtn, fillBtn, textBtn, selectBtn, lineBtn, rectBtn, circleBtn, imageBtn];
                 allToolBtns.forEach(btn => btn.classList.remove('active'));
 
                 if (currentTool !== 'text') {
@@ -581,6 +708,7 @@
                 }
 
                 textOptions.style.display = currentTool === 'text' ? 'flex' : 'none';
+                brushOptions.style.display = currentTool === 'brush' ? 'flex' : 'none';
 
                 switch (tool) {
                     case 'brush':
@@ -614,6 +742,11 @@
                     case 'circle':
                         circleBtn.classList.add('active');
                         previewCanvas.style.cursor = 'crosshair';
+                        break;
+                    case 'image':
+                        imageBtn.classList.add('active');
+                        previewCanvas.style.cursor = 'pointer';
+                        imageInput.click();
                         break;
                 }
             }
@@ -650,6 +783,20 @@
                 setActiveTool('circle');
             });
 
+            imageBtn.addEventListener('click', function() {
+                setActiveTool('image');
+            });
+
+            imageInput.addEventListener('change', function(e) {
+                const files = e.target.files;
+                if (files.length > 0 && files[0].type.startsWith('image/')) {
+                    loadImage(files[0]);
+                }
+            });
+
+            canvasContainer.addEventListener('dragover', handleDragOver);
+            canvasContainer.addEventListener('drop', handleImageDrop);
+
             undoBtn.addEventListener('click', undo);
             redoBtn.addEventListener('click', redo);
 
@@ -668,6 +815,20 @@
 
             fontFamilySelect.addEventListener('change', function() {
                 fontFamily = fontFamilySelect.value;
+            });
+            
+            gridBtn.addEventListener('click', toggleGrid);
+            
+            gridSizeInput.addEventListener('change', function() {
+                gridSize = parseInt(gridSizeInput.value) || 20;
+                if (gridEnabled) {
+                    clearPreview();
+                    drawGrid();
+                }
+            });
+            
+            brushStyleSelect.addEventListener('change', function() {
+                brushStyle = brushStyleSelect.value;
             });
 
             textInput.addEventListener('keydown', function(e) {
@@ -700,6 +861,11 @@
             }
 
             function drawDot(x, y) {
+                if (currentTool === 'brush' && brushStyle === 'spray') {
+                    drawSpray(x, y);
+                    return;
+                }
+                
                 ctx.beginPath();
                 const radius = currentTool === 'eraser' ? currentSize : currentSize / 2;
                 ctx.arc(x, y, radius, 0, Math.PI * 2);
@@ -789,21 +955,33 @@
                 if (!isDrawing) return;
 
                 if (currentTool === 'brush' || currentTool === 'eraser') {
-                    ctx.beginPath();
-                    ctx.moveTo(lastX, lastY);
-                    ctx.lineTo(pos.x, pos.y);
-                    ctx.lineCap = 'round';
-                    ctx.lineJoin = 'round';
-
-                    if (currentTool === 'brush') {
-                        ctx.strokeStyle = currentColor;
-                        ctx.lineWidth = currentSize;
+                    if (currentTool === 'brush' && brushStyle === 'spray') {
+                        drawSpray(pos.x, pos.y);
                     } else {
-                        ctx.strokeStyle = '#ffffff';
-                        ctx.lineWidth = currentSize * 2;
-                    }
+                        ctx.beginPath();
+                        ctx.moveTo(lastX, lastY);
+                        ctx.lineTo(pos.x, pos.y);
+                        ctx.lineCap = 'round';
+                        ctx.lineJoin = 'round';
 
-                    ctx.stroke();
+                        if (currentTool === 'brush') {
+                            ctx.strokeStyle = currentColor;
+                            ctx.lineWidth = currentSize;
+                            
+                            if (brushStyle === 'dashed') {
+                                ctx.setLineDash([currentSize * 2, currentSize]);
+                            } else {
+                                ctx.setLineDash([]);
+                            }
+                        } else {
+                            ctx.strokeStyle = '#ffffff';
+                            ctx.lineWidth = currentSize * 2;
+                            ctx.setLineDash([]);
+                        }
+
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                    }
 
                     lastX = pos.x;
                     lastY = pos.y;
