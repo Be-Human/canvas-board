@@ -214,6 +214,54 @@
             border-radius: 5px;
             font-size: 14px;
         }
+        
+        .zoom-value {
+            font-size: 14px;
+            color: #555;
+            min-width: 50px;
+            text-align: center;
+            font-weight: bold;
+        }
+        
+        .zoom-controls {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .tool-btn.zoom-btn {
+            padding: 8px 12px;
+            font-size: 16px;
+            min-width: 35px;
+            text-align: center;
+        }
+        
+        .canvas-wrapper {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .scaled-canvas {
+            transform-origin: center center;
+            transition: transform 0.1s ease;
+        }
+        
+        .transparent-bg-pattern {
+            background-image: 
+                linear-gradient(45deg, #ccc 25%, transparent 25%), 
+                linear-gradient(-45deg, #ccc 25%, transparent 25%), 
+                linear-gradient(45deg, transparent 75%, #ccc 75%), 
+                linear-gradient(-45deg, transparent 75%, #ccc 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+        }
     </style>
 </head>
 <body>
@@ -226,6 +274,7 @@
             <button class="tool-btn" id="fill-btn">填充</button>
             <button class="tool-btn" id="text-btn">文字</button>
             <button class="tool-btn" id="select-btn">选择</button>
+            <button class="tool-btn" id="eyedropper-btn">吸管</button>
         </div>
         
         <div class="tool-group">
@@ -280,15 +329,30 @@
             <button class="action-btn clear-btn" id="clear-btn">清空</button>
             <button class="action-btn save-btn" id="save-btn">保存</button>
         </div>
+        
+        <div class="tool-group">
+            <button class="tool-btn" id="zoom-out-btn">-</button>
+            <span class="zoom-value" id="zoom-value">100%</span>
+            <button class="tool-btn" id="zoom-in-btn">+</button>
+            <button class="tool-btn" id="zoom-reset-btn">重置</button>
+        </div>
+        
+        <div class="tool-group">
+            <button class="tool-btn" id="transparent-bg-btn">透明背景</button>
+        </div>
     </div>
     
     <div class="canvas-container" id="canvasContainer" style="width: 800px; height: 600px;">
-        <canvas id="canvas" width="800" height="600"></canvas>
-        <canvas id="previewCanvas" width="800" height="600"></canvas>
-        <div class="text-input-container" id="textInputContainer">
-            <input type="text" id="textInput" placeholder="输入文字后按 Enter 确认">
+        <div class="canvas-wrapper" id="canvasWrapper">
+            <div class="scaled-canvas" id="scaledCanvas" style="position: relative; width: 800px; height: 600px;">
+                <canvas id="canvas" width="800" height="600"></canvas>
+                <canvas id="previewCanvas" width="800" height="600"></canvas>
+                <div class="text-input-container" id="textInputContainer">
+                    <input type="text" id="textInput" placeholder="输入文字后按 Enter 确认">
+                </div>
+                <div class="selection-box" id="selectionBox"></div>
+            </div>
         </div>
-        <div class="selection-box" id="selectionBox"></div>
     </div>
 
     <script>
@@ -298,6 +362,8 @@
             const previewCanvas = document.getElementById('previewCanvas');
             const previewCtx = previewCanvas.getContext('2d');
             const canvasContainer = document.getElementById('canvasContainer');
+            const canvasWrapper = document.getElementById('canvasWrapper');
+            const scaledCanvas = document.getElementById('scaledCanvas');
             const textInputContainer = document.getElementById('textInputContainer');
             const textInput = document.getElementById('textInput');
             const selectionBox = document.getElementById('selectionBox');
@@ -308,12 +374,19 @@
             const fillBtn = document.getElementById('fill-btn');
             const textBtn = document.getElementById('text-btn');
             const selectBtn = document.getElementById('select-btn');
+            const eyedropperBtn = document.getElementById('eyedropper-btn');
             const lineBtn = document.getElementById('line-btn');
             const rectBtn = document.getElementById('rect-btn');
             const circleBtn = document.getElementById('circle-btn');
             const imageBtn = document.getElementById('image-btn');
             const imageInput = document.getElementById('imageInput');
             const undoBtn = document.getElementById('undo-btn');
+            
+            const zoomInBtn = document.getElementById('zoom-in-btn');
+            const zoomOutBtn = document.getElementById('zoom-out-btn');
+            const zoomResetBtn = document.getElementById('zoom-reset-btn');
+            const zoomValue = document.getElementById('zoom-value');
+            const transparentBgBtn = document.getElementById('transparent-bg-btn');
             
             let imageMode = false;
             let selectedImage = null;
@@ -322,6 +395,13 @@
             
             let gridEnabled = false;
             let gridSize = 20;
+            
+            let currentZoom = 1;
+            const minZoom = 0.1;
+            const maxZoom = 5;
+            const zoomStep = 0.1;
+            
+            let transparentBackground = false;
             
             let brushStyle = 'solid';
             const redoBtn = document.getElementById('redo-btn');
@@ -456,9 +536,24 @@
             }
 
             function initCanvas() {
-                ctx.fillStyle = '#ffffff';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                if (transparentBackground) {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                } else {
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                }
                 saveToHistory();
+            }
+            
+            function toggleTransparentBackground() {
+                transparentBackground = !transparentBackground;
+                transparentBgBtn.classList.toggle('active', transparentBackground);
+                
+                if (transparentBackground) {
+                    scaledCanvas.classList.add('transparent-bg-pattern');
+                } else {
+                    scaledCanvas.classList.remove('transparent-bg-pattern');
+                }
             }
 
             function saveToHistory() {
@@ -687,10 +782,36 @@
 
                 return x >= left && x <= right && y >= top && y <= bottom;
             }
+            
+            function rgbToHex(r, g, b) {
+                return '#' + [r, g, b].map(x => {
+                    const hex = x.toString(16);
+                    return hex.length === 1 ? '0' + hex : hex;
+                }).join('');
+            }
+            
+            function pickColor(x, y) {
+                const pixelX = Math.floor(x);
+                const pixelY = Math.floor(y);
+                
+                if (pixelX < 0 || pixelX >= canvas.width || pixelY < 0 || pixelY >= canvas.height) {
+                    return null;
+                }
+                
+                const imageData = ctx.getImageData(pixelX, pixelY, 1, 1);
+                const data = imageData.data;
+                
+                return {
+                    r: data[0],
+                    g: data[1],
+                    b: data[2],
+                    a: data[3]
+                };
+            }
 
             function setActiveTool(tool) {
                 currentTool = tool;
-                const allToolBtns = [brushBtn, eraserBtn, fillBtn, textBtn, selectBtn, lineBtn, rectBtn, circleBtn, imageBtn];
+                const allToolBtns = [brushBtn, eraserBtn, fillBtn, textBtn, selectBtn, eyedropperBtn, lineBtn, rectBtn, circleBtn, imageBtn];
                 allToolBtns.forEach(btn => btn.classList.remove('active'));
 
                 if (currentTool !== 'text') {
@@ -731,6 +852,10 @@
                         selectBtn.classList.add('active');
                         previewCanvas.style.cursor = 'default';
                         break;
+                    case 'eyedropper':
+                        eyedropperBtn.classList.add('active');
+                        previewCanvas.style.cursor = 'crosshair';
+                        break;
                     case 'line':
                         lineBtn.classList.add('active');
                         previewCanvas.style.cursor = 'crosshair';
@@ -770,6 +895,10 @@
 
             selectBtn.addEventListener('click', function() {
                 setActiveTool('select');
+            });
+            
+            eyedropperBtn.addEventListener('click', function() {
+                setActiveTool('eyedropper');
             });
 
             lineBtn.addEventListener('click', function() {
@@ -831,6 +960,21 @@
             brushStyleSelect.addEventListener('change', function() {
                 brushStyle = brushStyleSelect.value;
             });
+            
+            zoomInBtn.addEventListener('click', zoomIn);
+            zoomOutBtn.addEventListener('click', zoomOut);
+            zoomResetBtn.addEventListener('click', zoomReset);
+            
+            canvasContainer.addEventListener('wheel', function(e) {
+                e.preventDefault();
+                if (e.deltaY < 0) {
+                    zoomIn();
+                } else {
+                    zoomOut();
+                }
+            }, { passive: false });
+            
+            transparentBgBtn.addEventListener('click', toggleTransparentBackground);
 
             textInput.addEventListener('keydown', function(e) {
                 if (e.key === 'Enter') {
@@ -856,9 +1000,37 @@
             function getMousePos(e) {
                 const rect = previewCanvas.getBoundingClientRect();
                 return {
-                    x: e.clientX - rect.left,
-                    y: e.clientY - rect.top
+                    x: (e.clientX - rect.left) / currentZoom,
+                    y: (e.clientY - rect.top) / currentZoom
                 };
+            }
+            
+            function updateZoomDisplay() {
+                zoomValue.textContent = Math.round(currentZoom * 100) + '%';
+            }
+            
+            function applyZoom() {
+                scaledCanvas.style.transform = `scale(${currentZoom})`;
+                updateZoomDisplay();
+            }
+            
+            function zoomIn() {
+                if (currentZoom < maxZoom) {
+                    currentZoom = Math.min(maxZoom, currentZoom + zoomStep);
+                    applyZoom();
+                }
+            }
+            
+            function zoomOut() {
+                if (currentZoom > minZoom) {
+                    currentZoom = Math.max(minZoom, currentZoom - zoomStep);
+                    applyZoom();
+                }
+            }
+            
+            function zoomReset() {
+                currentZoom = 1;
+                applyZoom();
             }
 
             function drawDot(x, y) {
@@ -867,11 +1039,23 @@
                     return;
                 }
                 
-                ctx.beginPath();
-                const radius = currentTool === 'eraser' ? currentSize : currentSize / 2;
-                ctx.arc(x, y, radius, 0, Math.PI * 2);
-                ctx.fillStyle = currentTool === 'eraser' ? '#ffffff' : currentColor;
-                ctx.fill();
+                if (currentTool === 'eraser') {
+                    const radius = currentSize;
+                    if (transparentBackground) {
+                        ctx.clearRect(x - radius, y - radius, radius * 2, radius * 2);
+                    } else {
+                        ctx.beginPath();
+                        ctx.arc(x, y, radius, 0, Math.PI * 2);
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fill();
+                    }
+                } else {
+                    ctx.beginPath();
+                    const radius = currentSize / 2;
+                    ctx.arc(x, y, radius, 0, Math.PI * 2);
+                    ctx.fillStyle = currentColor;
+                    ctx.fill();
+                }
             }
 
             function startDrawing(e) {
@@ -887,6 +1071,15 @@
 
                 if (currentTool === 'text') {
                     showTextInput(pos.x, pos.y);
+                    return;
+                }
+                
+                if (currentTool === 'eyedropper') {
+                    const color = pickColor(pos.x, pos.y);
+                    if (color) {
+                        currentColor = rgbToHex(color.r, color.g, color.b);
+                        colorInput.value = currentColor;
+                    }
                     return;
                 }
 
@@ -958,28 +1151,44 @@
                 if (currentTool === 'brush' || currentTool === 'eraser') {
                     if (currentTool === 'brush' && brushStyle === 'spray') {
                         drawSpray(pos.x, pos.y);
+                    } else if (currentTool === 'eraser') {
+                        const radius = currentSize;
+                        if (transparentBackground) {
+                            ctx.save();
+                            ctx.globalCompositeOperation = 'destination-out';
+                            ctx.beginPath();
+                            ctx.moveTo(lastX, lastY);
+                            ctx.lineTo(pos.x, pos.y);
+                            ctx.lineCap = 'round';
+                            ctx.lineJoin = 'round';
+                            ctx.lineWidth = radius * 2;
+                            ctx.stroke();
+                            ctx.restore();
+                        } else {
+                            ctx.beginPath();
+                            ctx.moveTo(lastX, lastY);
+                            ctx.lineTo(pos.x, pos.y);
+                            ctx.lineCap = 'round';
+                            ctx.lineJoin = 'round';
+                            ctx.strokeStyle = '#ffffff';
+                            ctx.lineWidth = radius * 2;
+                            ctx.stroke();
+                        }
                     } else {
                         ctx.beginPath();
                         ctx.moveTo(lastX, lastY);
                         ctx.lineTo(pos.x, pos.y);
                         ctx.lineCap = 'round';
                         ctx.lineJoin = 'round';
-
-                        if (currentTool === 'brush') {
-                            ctx.strokeStyle = currentColor;
-                            ctx.lineWidth = currentSize;
-                            
-                            if (brushStyle === 'dashed') {
-                                ctx.setLineDash([currentSize * 2, currentSize]);
-                            } else {
-                                ctx.setLineDash([]);
-                            }
+                        ctx.strokeStyle = currentColor;
+                        ctx.lineWidth = currentSize;
+                        
+                        if (brushStyle === 'dashed') {
+                            ctx.setLineDash([currentSize * 2, currentSize]);
                         } else {
-                            ctx.strokeStyle = '#ffffff';
-                            ctx.lineWidth = currentSize * 2;
                             ctx.setLineDash([]);
                         }
-
+                        
                         ctx.stroke();
                         ctx.setLineDash([]);
                     }
@@ -1014,8 +1223,12 @@
                             const width = Math.abs(selectionEndX - selectionStartX);
                             const height = Math.abs(selectionEndY - selectionStartY);
                             
-                            ctx.fillStyle = '#ffffff';
-                            ctx.fillRect(left, top, width, height);
+                            if (transparentBackground) {
+                                ctx.clearRect(left, top, width, height);
+                            } else {
+                                ctx.fillStyle = '#ffffff';
+                                ctx.fillRect(left, top, width, height);
+                            }
                             
                             ctx.putImageData(
                                 selectedImageData,
